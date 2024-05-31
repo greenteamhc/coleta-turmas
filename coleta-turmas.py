@@ -3,9 +3,19 @@ import re
 import requests
 import PyPDF2
 import pandas as pd
+from datetime import datetime
 
-# TODO: Otimizar o código
-# TODO: Automatizar a busca do PDF de matrículas deferidas para o ajuste e reajuste
+
+# Gera um iterador para as turmas
+def classes_generator(classes_list: list):
+    for element in classes_list:
+        yield element
+
+
+# Gera um iterador para os membros
+def members_generator(members_dataframe: pd.DataFrame):
+    for index, row in members_dataframe.iterrows():
+        yield row["RA"], row["Nome completo"]
 
 
 # Pega o conteúdo do PDF
@@ -40,7 +50,7 @@ def make_lines(pages):
 def select_content(lines, ra_list):
     classes = []
 
-    for line in lines:
+    for line in classes_generator(lines):
         verified_line = verify_line(line)
         if verified_line:
             classes.append(verified_line) if verified_line["RA"] in ra_list else None
@@ -74,27 +84,52 @@ def verify_line(line):
 
 # Insere o nome do aluno nos dicionários das turmas
 def insert_name(classes, members_dataframe):
-    for i in range(0, len(members_dataframe)):
+    for ra, name in members_generator(members_dataframe):
         for j in range(0, len(classes)):
-            if classes[j]["RA"] == members_dataframe["RA"][i]:
-                classes[j]["Name"] = members_dataframe["Nome completo"][i]
+            if classes[j]["RA"] == ra:
+                classes[j]["Name"] = name
+
     return classes
 
 
 # Abre o arquivo CSV e retorna um DataFrame com nomes e RAs
 def open_csv(file):
     df = pd.read_csv(
-        file, usecols=[2, 4], encoding="utf-8", converters={"RA": lambda x: str(x)}
+        file,
+        usecols=[2, 4],
+        sep=",",
+        encoding="utf-8",
+        converters={"RA": lambda x: str(x)},
     )
     return df
 
 
+# Seleciona o quadrimestre e o ano atuais
+def select_date():
+    date = datetime.today()
+    period_1 = datetime(date.year, 5, 25)
+    period_2 = datetime(date.year, 8, 25)
+    print(f"\nData atual: {date.strftime('%d/%m/%Y')}")
+
+    if date < period_1:
+        period = "1"
+    elif date < period_2:
+        period = "2"
+    else:
+        period = "3"
+
+    return period, date.strftime("%Y")
+
+
 # Função principal
 if __name__ == "__main__":
+    period, year = select_date()
     csv_document = "RecadastroMembrosGTHC.csv"  # Arquivo de recadastro de membros
-    url_ajuste = "https://prograd.ufabc.edu.br/pdf/2024_1_matriculas_deferidas_pos_ajuste.pdf"  # Link do pdf das matrículas deferidas no ajuste
-    url_reajuste = "https://prograd.ufabc.edu.br/pdf/reajuste_2024_1_matriculas_deferidas.pdf"  # Link do pdf das matrículas deferidas no reajuste
-
+    url_ajuste = f"https://prograd.ufabc.edu.br/pdf/ajuste_{year}_{period}_matriculas_deferidas.pdf"  # Link do pdf das matrículas deferidas no ajuste
+    url_reajuste = f"https://prograd.ufabc.edu.br/pdf/reajuste_{year}_{period}_matriculas_deferidas.pdf"  # Link do pdf das matrículas deferidas no reajuste
+    print("=" * 60)
+    print(f"Serão utilizados os PDFs do {period}º quadrimestre de {year}")
+    print("=" * 60)
     raw_content_ajuste = get_content(url_ajuste)
     raw_content_reajuste = get_content(url_reajuste)
     raw_content = []
@@ -104,7 +139,10 @@ if __name__ == "__main__":
     elif raw_content_ajuste:
         raw_content = raw_content_ajuste
     else:
-        print("Não foi possível acessar o arquivo")
+        print(
+            "Não foi possível acessar o PDF. Verifique se ele se encontra disponível ou se há conexão com a internet."
+        )
+        exit()
 
     content_in_lines = make_lines(raw_content)
     members_data = open_csv(csv_document)
